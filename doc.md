@@ -22,10 +22,13 @@ KeLoop包括些什么呢？
 - proc 事件的执行，一个回调函数
 - extra  额外的东西
 
-一些操作：
-- AddFileEvent
-- RemoveFileEvent
+
 - getFeKey : 通过mask和fd，去fileEvent的map里找到为一个FileEvent
+- AddFileEvent：添加文件事件
+- RemoveFileEvent：移除文件事件
+
+
+
 
 ### timeEvent
 - id
