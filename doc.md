@@ -39,8 +39,14 @@ KeLoop包括些什么呢？
 
 
 # net
+封装socket操作，处理网络相关内容
+接口有：
+- Accept
+- TcpServer
+- Read
+- Write
+- Close
 
-处理网络相关
 
 # obj
 
