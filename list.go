@@ -79,7 +79,25 @@ func (list *List) Lpush(val *Gobj) {
 }
 
 func (list *List) DelNode(n *Node) {
-	
+	if n == nil {
+		return
+	}
+	if n == list.head { // 删除的是头节点
+		list.head = list.head.next
+	} else if n == list.tail { // 删除的是尾节点。
+		list.tail = list.tail.pre
+	} else {
+		t := list.head
+		for t != nil {
+			if t == n {
+				t.pre.next = t.next
+				t.next.pre = t.pre
+				return
+			} else {
+				t = t.next
+			}
+		}
+	}
 }
 
 func (list *List) Delete(val *Gobj) {
