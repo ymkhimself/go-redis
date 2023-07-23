@@ -83,9 +83,17 @@ func (list *List) DelNode(n *Node) {
 		return
 	}
 	if n == list.head { // 删除的是头节点
-		list.head = list.head.next
+		if n.next != nil {
+			n.next.pre = nil
+		}
+		list.head = n.next
+		n.next = nil
 	} else if n == list.tail { // 删除的是尾节点。
-		list.tail = list.tail.pre
+		if n.pre != nil {
+			n.pre.next = nil
+		}
+		list.tail = n.pre
+		n.pre = nil
 	} else {
 		t := list.head
 		for t != nil {
