@@ -33,3 +33,31 @@ func (o *Gobj) StrVal() string {
 	}
 	return o.Val.(string)
 }
+
+func CreateFromInt(val int64) *Gobj {
+	return &Gobj{
+		Type:     GSTR,
+		Val:      strconv.FormatInt(val, 10),
+		refCount: 1,
+	}
+}
+
+func CreateFromObject(typ Gtype, ptr interface{}) *Gobj {
+	return &Gobj{
+		Type:     typ,
+		Val:      ptr,
+		refCount: 1,
+	}
+}
+
+func (o *Gobj) IncrRefCount() {
+	o.refCount++
+}
+
+func (o *Gobj) DecrRefCount() {
+	o.refCount--
+	if o.refCount == 0 {
+		// 把回收的任务交给GC
+		o.Val = nil
+	}
+}
