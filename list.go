@@ -94,18 +94,17 @@ func (list *List) DelNode(n *Node) {
 		}
 		list.tail = n.pre
 		n.pre = nil
-	} else {
-		t := list.head
-		for t != nil {
-			if t == n {
-				t.pre.next = t.next
-				t.next.pre = t.pre
-				return
-			} else {
-				t = t.next
-			}
+	} else { // 删除的是中间节点
+		if n.pre != nil {
+			n.pre.next = n.next
 		}
+		if n.next != nil {
+			n.next.pre = n.pre
+		}
+		n.pre = nil
+		n.next = nil
 	}
+	list.length--
 }
 
 func (list *List) Delete(val *Gobj) {
