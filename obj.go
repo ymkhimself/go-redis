@@ -42,7 +42,7 @@ func CreateFromInt(val int64) *Gobj {
 	}
 }
 
-func CreateFromObject(typ Gtype, ptr interface{}) *Gobj {
+func CreateObject(typ Gtype, ptr interface{}) *Gobj {
 	return &Gobj{
 		Type:     typ,
 		Val:      ptr,
