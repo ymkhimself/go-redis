@@ -158,6 +158,10 @@ func (loop *KeLoop) RemoveTimeEvent(id int) {
 	}
 }
 
+/*
+1. 创建 epoll
+2. 创建Keloop对象,包括一个map用于保存fileEvent,epoll自己的fd, 下一个timeEvent的id,是否停止
+*/
 func KeLoopCreate() (*KeLoop, error) {
 	epollFd, err := unix.EpollCreate1(0) // 简单创建一个epoll实例
 	if err != nil {
@@ -184,6 +188,14 @@ func (loop *KeLoop) nearestTime() int64 {
 	return nearest
 }
 
+/*
+*
+等待过程
+1. epoll 等连接，设置一个timeout, 这个timeout的长度就是距离下一个timeEvent最近的时间，这样不会耽误timeEvent的时间.
+2. 从epoll_wait中拿到fileEvent 的fd 然后根据事件类型，拿到key，再通过key收集fileEvent
+3. 遍历链表获取timeEvent
+4. 将两类事件返回
+*/
 func (loop *KeLoop) KeWait() (tes []*KeTimeEvent, fes []*KeFileEvent) {
 	timeout := loop.nearestTime() - GetMsTime()
 	if timeout <= 0 {
@@ -198,7 +210,7 @@ func (loop *KeLoop) KeWait() (tes []*KeTimeEvent, fes []*KeFileEvent) {
 		log.Printf("ae get %v epoll events\n", n)
 	}
 
-	// 手机FileEvent
+	// 收集FileEvent
 	for i := 0; i < n; i++ {
 		if events[i].Events&unix.EPOLLIN != 0 {
 			fe := loop.FileEvents[getFeKey(int(events[i].Fd), KE_READABLE)]
@@ -225,6 +237,10 @@ func (loop *KeLoop) KeWait() (tes []*KeTimeEvent, fes []*KeFileEvent) {
 	return
 }
 
+/*
+处理这两类事件
+对于tes 如果是一次性的事件，执行完移走
+*/
 func (loop *KeLoop) KeProcess(tes []*KeTimeEvent, fes []*KeFileEvent) {
 	for _, te := range tes {
 		te.proc(loop, te.id, te.extra)

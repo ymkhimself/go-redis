@@ -6,6 +6,7 @@ type Node struct {
 	next *Node
 }
 
+// 链表类型
 type ListType struct {
 	EqualFunc func(a, b *Gobj) bool
 }
