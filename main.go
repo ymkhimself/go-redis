@@ -1,13 +1,23 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 )
 
 const (
-	GODIS_IO_BUF   int = 1024 * 12
-	GODIS_MAX_BULK int = 1024 * 4
+	COMMAND_UNKNOWN CmdType = 0x00
+	COMMAND_INLINE  CmdType = 0x01
+	COMMAND_BULK    CmdType = 0x02
+)
+
+const (
+	GODIS_IO_BUF     int = 1024 * 12
+	GODIS_MAX_BULK   int = 1024 * 4
+	GODIS_MAX_INLINE int = 1024 * 4
 )
 
 type CmdType = byte
@@ -126,25 +136,102 @@ func resetClient(client *GodisClient) {
 
 }
 
+// 找到结束的位置
+// 如果没找到，就返回错误喽
 func (client *GodisClient) findLineInQuery() (int, error) {
-
-	return 0, nil
+	index := strings.Index(string(client.queryBuf[:client.queryLen]), "\r\n")
+	if index < 0 && client.queryLen > GODIS_MAX_INLINE {
+		return index, errors.New("too long inline cmd")
+	}
+	return index, nil
 }
 
+/*
+拿到bulk的数量
+*/
 func (client *GodisClient) getNumInQuery(s, e int) (int, error) {
-
+	num, err := strconv.Atoi(string(client.queryBuf[s:e]))
+	client.queryBuf = client.queryBuf[e+2:]
+	client.queryLen -= e + 2
+	return num, err
 }
 
+/*
+处理inline格式的请求
+从请求中把一个个参数拿出来就行了。
+*/
 func handleInlineBuf(client *GodisClient) (bool, error) {
+	index, err := client.findLineInQuery()
+	if index < 0 {
+		return false, err
+	}
 
+	subs := strings.Split(string(client.queryBuf[:index]), " ") // inline是用空格分开的
+	client.queryBuf = client.queryBuf[index+2:]                 // 往后走，除掉/r/n
+	client.queryLen -= index + 2
+	client.args = make([]*Gobj, len(subs))
+	for i, sub := range subs {
+		client.args[i] = CreateObject(GSTR, sub)
+	}
+
+	return true, nil
 }
 
+/*
+处理bulk格式的请求
+*/
 func handleBulkBuf(client *GodisClient) (bool, error) {
+	if client.bulkNum == 0 {
+		index, err := client.findLineInQuery()
+		if index < 0 {
+			return false, err
+		}
 
+		if client.queryBuf[0] != '$' {
+			return false, errors.New("except $ for bulk length") // $符号后面是bulk的长度
+		}
+
+		client.getNumInQuery(1, index)
+	}
 }
 
+/*
+处理queryBuf
+1. 判断使用的是哪种命令
+2. 根据两种情况进行处理。
+*/
 func ProcessQueryBuf(client *GodisClient) error {
-
+	for client.queryLen > 0 {
+		if client.cmdType == COMMAND_UNKNOWN {
+			if client.queryBuf[0] == '*' {
+				client.cmdType = COMMAND_BULK
+			} else {
+				client.cmdType = COMMAND_INLINE
+			}
+		}
+		var ok bool
+		var err error
+		if client.cmdType == COMMAND_BULK {
+			ok, err = handleBulkBuf(client)
+		} else if client.cmdType == COMMAND_INLINE {
+			ok, err = handleInlineBuf(client)
+		} else {
+			return errors.New("unknown Godis Command Type")
+		}
+		if err != nil {
+			return err
+		}
+		if ok {
+			if len(client.args) == 0 {
+				resetClient(client)
+			} else {
+				ProcessCommand(client)
+			}
+		} else {
+			break
+		}
+	}
+	return nil
 }
 
 /*
