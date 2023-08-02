@@ -84,20 +84,47 @@ func expireCommand(c *GodisClient) {
 
 }
 
+/*
+查找命令
+*/
 func lookupCommand(cmdStr string) *GodisCommand {
-	return nil
+	for _, c := range cmdTable {
+		if c.name == cmdStr {
+			return &c
+		}
+	}
 }
 
 func (c *GodisClient) AddReply(o *Gobj) {
-
+	c.reply.Append(o)
+	o.IncrRefCount()
+	server.keLoop.AddFileEvent(c.fd, KE_WRITABLE, SendReplyToClient, c) // 将reply注册为一个写事件。
 }
 
 func (c *GodisClient) AddReplyStr(str string) {
-
+	object := CreateObject(GSTR, str)
+	c.AddReply(object)
+	object.DecrRefCount() // 这里要减下去，因为AddReply会加一
 }
 
+/*
+先拿到命令是啥
+*/
 func ProcessCommand(c *GodisClient) {
-
+	cmdStr := c.args[0].StrVal()
+	log.Printf("process command: %v\n", cmdStr)
+	if cmdStr == "quit" {
+		freeClient(c)
+		return
+	}
+	command := lookupCommand(cmdStr)
+	if command == nil {
+		c.AddReplyStr("-ERR: unknpwn command")
+		resetClient(c)
+		return
+	}
+	command.proc(c)
+	resetClient(c)
 }
 
 // 释放 args refCount -1
@@ -133,7 +160,10 @@ func freeClient(client *GodisClient) {
 }
 
 func resetClient(client *GodisClient) {
-
+	freeArgs(client)
+	client.cmdType = COMMAND_UNKNOWN
+	client.bulkNum = 0
+	client.bulkLen = 0
 }
 
 // 找到结束的位置
@@ -191,8 +221,51 @@ func handleBulkBuf(client *GodisClient) (bool, error) {
 			return false, errors.New("except $ for bulk length") // $符号后面是bulk的长度
 		}
 
-		client.getNumInQuery(1, index)
+		bnum, err := client.getNumInQuery(1, index)
+		if err != nil {
+			return false, err
+		}
+		if bnum == 0 {
+			return true, nil
+		}
+		client.bulkNum = bnum
+		client.args = make([]*Gobj, bnum)
 	}
+	// 读取每一个bulk
+	for client.bulkNum > 0 {
+		if client.bulkLen == 0 {
+			index, err := client.findLineInQuery()
+			if index < 0 {
+				return false, err
+			}
+
+			if client.queryBuf[0] != '$' {
+				return false, errors.New("expect $ for bulk length")
+			}
+
+			blen, err := client.getNumInQuery(1, index)
+			if err != nil || blen == 0 {
+				return false, err
+			}
+			if blen > GODIS_MAX_BULK {
+				return false, errors.New("too big bulk")
+			}
+			client.bulkLen = blen
+		}
+		if client.queryLen < client.bulkLen+2 {
+			return false, nil
+		}
+		index := client.bulkLen
+		if client.queryBuf[index] != '\r' || client.queryBuf[index+1] != '\n' {
+			return false, errors.New("expect CRLF for bulk end")
+		}
+		client.args[len(client.args)-client.bulkNum] = CreateObject(GSTR, string(client.queryBuf[:index]))
+		client.queryBuf = client.queryBuf[index+2:]
+		client.queryLen = 0
+		client.bulkLen = 0
+		client.bulkNum -= 1
+	}
+	return true, nil
 }
 
 /*
