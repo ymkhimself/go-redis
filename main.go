@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -65,15 +66,34 @@ var cmdTable = []GodisCommand{
 }
 
 func expireIfNeeded(key *Gobj) {
-
+	entry := server.db.expire.Find(key)
+	if entry == nil {
+		return
+	}
+	when := entry.Val.IntVal()
+	if when > GetMsTime() { // 不到过期时间
+		return
+	}
+	server.db.expire.Delete(key)
+	server.db.data.Delete(key)
 }
 
-func findKeyRead(keu *Gobj) *Gobj {
-	return nil
+func findKeyRead(key *Gobj) *Gobj {
+	expireIfNeeded(key) // 检查key要不要过期
+	return server.db.data.Get(key)
 }
 
 func getCommand(c *GodisClient) {
-
+	key := c.args[1]
+	val := findKeyRead(key)
+	if val == nil {
+		c.AddReplyStr("$-1\r\n")
+	} else if val.Type != GSTR {
+		c.AddReplyStr("-ERR: worng type\r\n")
+	} else {
+		strVal := val.StrVal()
+		c.AddReplyStr(fmt.Sprintf("$%d%v\r\n", len(strVal), strVal))
+	}
 }
 
 func setCommand(c *GodisClient) {
