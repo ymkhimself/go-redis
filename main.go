@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"os"
 	"strconv"
@@ -97,11 +98,27 @@ func getCommand(c *GodisClient) {
 }
 
 func setCommand(c *GodisClient) {
-
+	key := c.args[1]
+	val := c.args[2]
+	if val.Type != GSTR {
+		c.AddReplyStr("-ERR: wrong type\r\n")
+	}
+	server.db.data.Set(key, val)
+	server.db.expire.Delete(key)
+	c.AddReplyStr("+OK\r\n")
 }
 
 func expireCommand(c *GodisClient) {
-
+	key := c.args[1]
+	val := c.args[2]
+	if val.Type != GSTR {
+		c.AddReplyStr("-ERR: wrong type\r\n")
+	}
+	expire := GetMsTime() + (val.IntVal() * 1000) // 转成毫秒
+	expireObj := CreateFromInt(expire)
+	server.db.expire.Set(key, expireObj)
+	expireObj.DecrRefCount()
+	c.AddReplyStr("+OK\r\n")
 }
 
 /*
@@ -113,6 +130,7 @@ func lookupCommand(cmdStr string) *GodisCommand {
 			return &c
 		}
 	}
+	return nil
 }
 
 func (c *GodisClient) AddReply(o *Gobj) {
@@ -354,16 +372,42 @@ func ReadQueryFromClient(loop *KeLoop, fd int, extra interface{}) {
 	}
 }
 
+/*
+发送回复到客户端
+1.
+*/
 func SendReplyToClient(loop *KeLoop, fd int, extra interface{}) {
-
+	client := extra.(*GodisClient)
+	log.Printf("SendReplyToClient, reply len:%v\n", client.reply.Length())
+	for client.reply.length > 0 {
+		rep := client.reply.First()
+		buf := []byte(rep.Val.StrVal())
+		bufLen := len(buf)
+		if client.sentLen < bufLen {
+			n, err := Write(fd, buf[client.sentLen:])
+			if err != nil {
+				log.Printf("send reply err: %v\n", err)
+				freeClient(client)
+				return
+			}
+		}
+	}
 }
 
 func StrEqual(a, b *Gobj) bool {
-
+	if a.Type != GSTR || b.Type != GSTR {
+		return false
+	}
+	return a.StrVal() == b.StrVal()
 }
 
 func StrHash(key *Gobj) int64 {
-
+	if key.Type != GSTR {
+		return 0
+	}
+	hash := fnv.New64()
+	hash.Write([]byte(key.StrVal()))
+	return int64(hash.Sum64())
 }
 
 /*

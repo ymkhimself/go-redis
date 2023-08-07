@@ -19,7 +19,7 @@ type Gobj struct {
 	refCount int // 用于引用计数
 }
 
-func (o *Gobj) InitVal() int64 {
+func (o *Gobj) IntVal() int64 {
 	if o.Type != GSTR {
 		return 0
 	}
