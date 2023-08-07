@@ -374,7 +374,13 @@ func ReadQueryFromClient(loop *KeLoop, fd int, extra interface{}) {
 
 /*
 发送回复到客户端
-1.
+1.reply是一个链表，遍历他然后网外发
+2. 先拿到值放到buf里
+3. 写入可能不能一次完成，因此使用sentLen来判断
+4. 从sentLen开始写，这里有可能会把之前残留的数据也写过去
+5. 如果buf里的被写完了，删掉这一条回复就ok
+6. 如果没写完，跳出循环，等待下一次事件被触发(再事件循环机制下，一次事件的触发，只能执行一次读写)
+7. 写入完成之后就删掉节点
 */
 func SendReplyToClient(loop *KeLoop, fd int, extra interface{}) {
 	client := extra.(*GodisClient)
@@ -384,13 +390,26 @@ func SendReplyToClient(loop *KeLoop, fd int, extra interface{}) {
 		buf := []byte(rep.Val.StrVal())
 		bufLen := len(buf)
 		if client.sentLen < bufLen {
-			n, err := Write(fd, buf[client.sentLen:])
+			n, err := Write(fd, buf[client.sentLen:]) // 写入可能不是一次就能完成的，所以加sentLen来判断
 			if err != nil {
 				log.Printf("send reply err: %v\n", err)
 				freeClient(client)
 				return
 			}
+			client.sentLen += n
+			log.Printf("send %v bytes to clients:%v\n", n, client.fd)
+			if client.sentLen == bufLen {
+				client.reply.DelNode(rep)
+				rep.Val.DecrRefCount()
+				client.sentLen = 0
+			} else {
+				break
+			}
 		}
+	}
+	if client.reply.Length() == 0 {
+		client.sentLen = 0
+		loop.RemoveFileEvent(fd, KE_WRITABLE)
 	}
 }
 
