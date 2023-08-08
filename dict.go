@@ -8,6 +8,8 @@ import (
 const (
 	DEFAULT_STEP int   = 1
 	INIT_SIZE    int64 = 8
+	FORCE_RATIO  int64 = 2 // 扩容时的负载因子下限
+	GROW_RATIO   int64 = 2 // 扩容的增长率
 )
 
 var (
@@ -134,29 +136,99 @@ func (dict *Dict) expand(size int64) error {
 
 /*
 是否需要扩容
+如果要扩容，就扩喽.
+扩容不是一个很费事的操作
 */
 func (dict *Dict) expandIfNeeded() error {
-
+	if dict.isRehashing() { // 如果正在 rehash 直接返回
+		return nil
+	}
+	if dict.hts[0] == nil { // 初始状态
+		return dict.expand(INIT_SIZE)
+	}
+	// 负载因子到位，可以扩容
+	if (dict.hts[0].used > dict.hts[0].size) && (dict.hts[0].used/dict.hts[0].size > FORCE_RATIO) {
+		return dict.expand(dict.hts[0].size * GROW_RATIO)
+	}
+	return nil
 }
 
 /*
- */
+找一个空闲槽位
+1. 如果要扩容，先扩容
+2. 遍历两个表，去找一个合适的槽
+3. 先拿到idx，然后拿到entry
+4. 然后拿到遍历entry所在的槽，如果key已经在里面了，直接返回-1
+5. 如果没有在rehash，那么找第一个table就够了。
+*/
 func (dict *Dict) keyIndex(key *Gobj) int64 {
-
+	err := dict.expandIfNeeded()
+	if err != nil {
+		return -1
+	}
+	h := dict.HashFunc(key)
+	var idx int64
+	for i := 0; i <= 1; i++ {
+		idx = h & dict.hts[i].mask
+		e := dict.hts[i].table[idx]
+		for e != nil {
+			if dict.EqualFunc(e.Key, key) {
+				return -1
+			}
+			e = e.next
+		}
+		if !dict.isRehashing() { // 如果没有在rehash,那么找第一个表就够了
+			break
+		}
+	}
+	return idx
 }
 
 /*
  */
 func (dict *Dict) AddRaw(key *Gobj) *Entry {
+	if dict.isRehashing() {
+		dict.rehashStep()
+	}
+	index := dict.keyIndex(key)
+	if index == -1 {
+		return nil
+	}
+
+	var ht *htable
+	if dict.isRehashing() { // 如果正在rehash，就会王第二个表里插
+		ht = dict.hts[1]
+	} else {
+		ht = dict.hts[0]
+	}
+	var e Entry
+	e.Key = key
+	key.IncrRefCount()
+	e.next = ht.table[index]
+	ht.table[index] = &e
+	ht.used++
+	return &e
 
 }
 
 func (dict *Dict) Add(key, val *Gobj) error {
-
+	entry := dict.AddRaw(key)
+	if entry != nil {
+		return EX_ERR
+	}
+	entry.Val = val
+	val.IncrRefCount()
+	return nil
 }
 
 func (dict *Dict) Set(key, val *Gobj) {
-
+	err := dict.Add(key, val)
+	if err == nil { // 如果key不存在，并且已经设置好了,直接返回
+		return
+	}
+	entry := dict.Find(key) // 如果key存在，那就重新设置一下
+	entry.Val.DecrRefCount()
+	entry.Val = val
 }
 
 func (dict *Dict) Delete(key *Gobj) error {
