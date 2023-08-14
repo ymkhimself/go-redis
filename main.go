@@ -125,8 +125,9 @@ func expireCommand(c *GodisClient) {
 查找命令
 */
 func lookupCommand(cmdStr string) *GodisCommand {
+	cmdLower := strings.ToLower(cmdStr)
 	for _, c := range cmdTable {
-		if c.name == cmdStr {
+		if c.name == cmdLower {
 			return &c
 		}
 	}

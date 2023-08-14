@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"math"
+	"math/rand"
 )
 
 const (
@@ -229,10 +230,45 @@ func (dict *Dict) Set(key, val *Gobj) {
 	entry := dict.Find(key) // 如果key存在，那就重新设置一下
 	entry.Val.DecrRefCount()
 	entry.Val = val
+	val.IncrRefCount()
 }
 
+/*
+删除key
+1. 是不是初始状态
+2. 是否在rehash，如果在rehash，就进行一下，默认一个step
+3. 还是跟之前一样，去两天ht里面找，然后进行删除就ok了。
+*/
 func (dict *Dict) Delete(key *Gobj) error {
-
+	if dict.hts[0] == nil { //初始状态
+		return NK_ERR
+	}
+	if dict.isRehashing() {
+		dict.rehashStep()
+	}
+	h := dict.HashFunc(key)
+	for i := 0; i <= 1; i++ {
+		idx := dict.hts[i].mask & h
+		entry := dict.hts[i].table[idx]
+		var pre *Entry
+		for entry != nil {
+			if dict.EqualFunc(entry.Key, key) {
+				if pre == nil {
+					dict.hts[i].table[idx] = entry.next
+				} else {
+					pre.next = entry.next
+				}
+				freeEntry(entry)
+				return nil
+			}
+			pre = entry
+			entry = entry.next
+		}
+		if !dict.isRehashing() { //还是那样，如果没有在rehash，那就不需要再进入下一个ht了
+			break
+		}
+	}
+	return NK_ERR
 }
 
 /*
@@ -243,17 +279,78 @@ func freeEntry(e *Entry) {
 	e.Val.DecrRefCount()
 }
 
+/*
+find函数，找到对应的entry
+*/
 func (dict *Dict) Find(key *Gobj) *Entry {
-
+	if dict.hts[0] == nil {
+		return nil
+	}
+	if dict.isRehashing() {
+		dict.rehashStep()
+	}
+	h := dict.HashFunc(key)
+	for i := 0; i <= 1; i++ {
+		idx := dict.hts[i].mask & h
+		e := dict.hts[i].table[idx]
+		for e != nil {
+			if dict.EqualFunc(e.Key, key) {
+				return e
+			} else {
+				e = e.next
+			}
+		}
+		if !dict.isRehashing() {
+			break
+		}
+	}
+	return nil
 }
 
 func (dict *Dict) Get(key *Gobj) *Gobj {
-
+	entry := dict.Find(key)
+	if entry != nil {
+		return entry.Val
+	}
+	return nil
 }
 
 /*
 随机拿一个
 */
 func (dict *Dict) RandomGet() *Entry {
-
+	if dict.hts[0] == nil {
+		return nil
+	}
+	t := 0
+	if dict.isRehashing() {
+		dict.rehashStep()
+		// 	如果正在rehash，就从更大的那个表里随机拿
+		if dict.hts[1] != nil && dict.hts[1].used > dict.hts[0].used {
+			t = 1
+		}
+	}
+	// 开始随机找到一个slot 1000次还没找到，直接完犊子算球
+	idx := rand.Int63n(dict.hts[t].size)
+	cnt := 0
+	for dict.hts[t].table[idx] == nil && cnt < 1000 {
+		idx = rand.Int63n(dict.hts[t].size)
+		cnt++
+	}
+	if dict.hts[t].table[idx] == nil {
+		return nil
+	}
+	// 拿到这一个slot的长度
+	var listLen int64
+	p := dict.hts[t].table[idx]
+	for p != nil {
+		listLen++
+		p = p.next
+	}
+	listIdx := rand.Int63n(listLen)
+	p = dict.hts[t].table[idx]
+	for i := int64(0); i < listIdx; i++ {
+		p = p.next
+	}
+	return p
 }
