@@ -209,12 +209,11 @@ func (dict *Dict) AddRaw(key *Gobj) *Entry {
 	ht.table[index] = &e
 	ht.used++
 	return &e
-
 }
 
 func (dict *Dict) Add(key, val *Gobj) error {
 	entry := dict.AddRaw(key)
-	if entry != nil {
+	if entry == nil {
 		return EX_ERR
 	}
 	entry.Val = val

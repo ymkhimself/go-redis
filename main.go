@@ -505,8 +505,13 @@ func initServer(config *Config) error {
 */
 func main() {
 	// 启动的时候指定 配置文件路径
-	path := os.Args[1]
-	config, err := LoadConfig(path)
+	var configPath string
+	if len(os.Args) <= 2 {
+		configPath = "/home/ymk/workspace/golang/go-redis/config.json"
+	} else {
+		configPath = os.Args[1]
+	}
+	config, err := LoadConfig(configPath)
 	if err != nil {
 		log.Panicf("config error: %v\n", err)
 	}

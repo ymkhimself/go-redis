@@ -11,6 +11,14 @@ type Config struct {
 }
 
 func LoadConfig(path string) (config *Config, err error) {
+
+	_, err = os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return
